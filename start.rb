@@ -3,7 +3,7 @@ require 'erb'
 require 'excon'
 require 'logger'
 
-$logger = Logger.new(STDOUT, ENV['DEBUG'] ? Logger::DEBUG : Logger::INFO)
+$logger = Logger.new(STDOUT, ENV['LOGLEVEL'] ? Logger::ENV['LOGLEVEL'] : Logger::ERROR)
 
 module Service
   class Base
@@ -203,8 +203,12 @@ module Service
       ENV['test_url'] || 'http://icanhazip.com'
     end
 
+    def test_url_timeout
+      ENV['test_url_timeout'] || 10
+    end
+
     def working?
-      Excon.get(test_url, proxy: "http://127.0.0.1:#{port}", :read_timeout => 10).status == 200
+      $logger.error "failed proxy #{proxy.id} (port #{proxy.port})" unless Excon.get(test_url, proxy: "http://127.0.0.1:#{port}", :read_timeout => test_url_timeout).status == 200
     rescue
       false
     end
@@ -251,15 +255,18 @@ haproxy = Service::Haproxy.new
 proxies = []
 
 tor_instances = ENV['tors'] || 10
+$logger.info "configuring HAProxy with #{tor_instances} backends, per the 'tors' environment variable or the default"
 tor_instances.to_i.times.each do |id|
   proxy = Service::Proxy.new(id)
   haproxy.add_backend(proxy)
   proxy.start
   proxies << proxy
 end
-
+ 
+$logger.info "starting HAProxy"
 haproxy.start
 
+$logger.info "sleeping for 60 seconds"
 sleep 60
 
 loop do
